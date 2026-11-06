@@ -999,6 +999,11 @@ def main():
     excl = {int(x) for x in args.exclude_eps.split(",") if x.strip()}
     force = {int(x) for x in args.force_eps.split(",") if x.strip()}
     emitted = 0
+    # DEPLOY EDIT: per saved episode, the wall time (s) of every frame written.
+    # LeRobot numbers saved episodes 0..N-1 in save order, so list position IS
+    # the dataset's episode_index. Lets Deploy's umi.gripper_check line each
+    # dataset frame up with the wrist camera's tag detections (same clock).
+    saved_walls = []
     for ep, twq, ep_acts, ep_states in episodes:
         if ep in excl:
             print(f"  ep{ep}: EXCLUDED (--exclude-eps)")
@@ -1013,6 +1018,7 @@ def main():
             twq_s, acts_s, states_s = twq, None, None
         gaps_p = gaps_g = gaps_o = gaps_gF = gaps_pF = 0
         n_ep = 0
+        ep_walls = []   # DEPLOY EDIT: wall time of every frame written (deploy_wall_times.json)
         for j, t in enumerate(twq_s):
             if args.max_frames and emitted >= args.max_frames:
                 break
@@ -1188,6 +1194,7 @@ def main():
                             "observation.state": vBjt.copy()},
                 }
             ds.add_frame(frame)
+            ep_walls.append(float(t))   # DEPLOY EDIT
             if frame2 is not None:
                 ds2.add_frame(frame2)
             if qframes is not None:
@@ -1223,6 +1230,7 @@ def main():
                         or ep in force)
             if plain_ok:
                 ds.save_episode()
+                saved_walls.append({"marks_episode": str(ep), "t_wall": ep_walls})  # DEPLOY EDIT
                 quad["B"].save_episode()
                 quad["Cf"].save_episode()
             else:
@@ -1261,6 +1269,7 @@ def main():
             emitted -= n_ep
             continue
         ds.save_episode()
+        saved_walls.append({"marks_episode": str(ep), "t_wall": ep_walls})  # DEPLOY EDIT
         if ds2 is not None:
             ds2.save_episode()
         print(f"  ep{ep}: {n_ep} frames"
@@ -1276,6 +1285,10 @@ def main():
         if args.max_frames and emitted >= args.max_frames:
             break
     ds.finalize()
+    # DEPLOY EDIT: see saved_walls above.
+    Path(ds.root, "deploy_wall_times.json").write_text(json.dumps({
+        "schema": "deploy/umi_wall_times@1", "fps": args.fps, "slow": args.slow,
+        "episodes": [{"episode_index": i, **e} for i, e in enumerate(saved_walls)]}))
     if ds2 is not None:
         ds2.finalize()
     if quad is not None:
